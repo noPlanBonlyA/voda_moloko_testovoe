@@ -1,0 +1,7 @@
+[
+  {"sku": "B001", "name": "Juice", "stock": 3, "daily_sales": 0.7, "incoming": 0, "lead_days": 2, "safety_stock": 1},
+  {"sku": "B002", "name": "Bread", "stock": 10, "daily_sales": 2.5, "incoming": 12, "lead_days": 1, "safety_stock": 2},
+  {"sku": "B003", "name": "Salt", "stock": 40, "daily_sales": 0, "incoming": 0, "lead_days": 10, "safety_stock": 5},
+  {"sku": "B004", "name": "Rice", "stock": 0, "daily_sales": 0.1, "incoming": 0, "lead_days": 23, "safety_stock": 0},
+  {"sku": "B005", "name": "Pasta", "stock": 5, "daily_sales": 3.25, "incoming": 30, "lead_days": 4, "safety_stock": 4}
+]

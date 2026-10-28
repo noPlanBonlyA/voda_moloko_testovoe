@@ -1,0 +1,4 @@
+sku,name,stock,daily_sales,incoming,lead_days,safety_stock
+C001,Coffee,-5,4,0,5,8
+C002,Tea,50,abc,20,4.5,10
+C001,Sugar,8,2,5,7,6
