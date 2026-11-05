@@ -4,6 +4,7 @@
 
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -13,8 +14,10 @@ from pathlib import Path
 from reorder.__main__ import main
 from reorder.calc import Product, calculate
 from reorder.loader import InputError, load_products, parse_rows
+from reorder.report import save_report
 
 ROOT = Path(__file__).resolve().parent.parent
+HEADER = "sku,name,stock,daily_sales,incoming,lead_days,safety_stock"
 
 
 def product(stock=0, daily_sales="0", incoming=0, lead_days=0, safety_stock=0):
@@ -148,6 +151,62 @@ class LoaderTest(unittest.TestCase):
         with self.assertRaises(InputError):
             load_products(ROOT / "nope.csv")
 
+    def load_errors(self, content: bytes, name="p.csv") -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_bytes(content)
+            with self.assertRaises(InputError) as ctx:
+                load_products(path)
+        return ctx.exception.errors
+
+    def test_rejects_extra_csv_value(self):
+        # Восьмое значение не относится ни к одной колонке — вероятен сдвиг столбцов.
+        errors = self.load_errors(f"{HEADER}\nA,Test,2,1,0,2,0,EXTRA\n".encode())
+        self.assertEqual(len(errors), 1)
+        self.assertIn("строка 2", errors[0])
+        self.assertIn("'EXTRA'", errors[0])
+
+    def test_rejects_short_csv_row(self):
+        errors = self.load_errors(f"{HEADER}\nA,Test,2,1\n".encode())
+        self.assertIn("строка 2: нет значений для полей incoming, lead_days, safety_stock", errors[0])
+
+    def test_rejects_missing_header_column(self):
+        errors = self.load_errors(b"sku,name,stock\nA,Test,1\n")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("в заголовке нет колонок daily_sales", errors[0])
+
+    def test_rejects_json_null(self):
+        data = [{"sku": "A", "name": None, "stock": 1, "daily_sales": 1,
+                 "incoming": 0, "lead_days": 1, "safety_stock": 0}]
+        errors = self.load_errors(json.dumps(data).encode(), name="p.json")
+        self.assertIn("нет значений для полей name", errors[0])
+
+    def test_non_utf8_csv(self):
+        errors = self.load_errors(f"{HEADER}\nA,Кофе,1,1,0,1,0\n".encode("cp1251"))
+        self.assertIn("не в кодировке UTF-8", errors[0])
+
+    def test_non_utf8_json(self):
+        errors = self.load_errors('[{"name": "Кофе"}]'.encode("cp1251"), name="p.json")
+        self.assertIn("не в кодировке UTF-8", errors[0])
+
+    @unittest.skipIf(os.name == "nt" or os.geteuid() == 0, "права доступа POSIX, не под root")
+    def test_unreadable_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "p.csv"
+            path.write_text(f"{HEADER}\nA,T,1,1,0,1,0\n", encoding="utf-8")
+            path.chmod(0)
+            try:
+                with self.assertRaises(InputError) as ctx:
+                    load_products(path)
+            finally:
+                path.chmod(0o644)
+        self.assertIn("нет прав на чтение", ctx.exception.errors[0])
+
+    def test_directory_instead_of_file(self):
+        with self.assertRaises(InputError) as ctx:
+            load_products(ROOT / "examples")
+        self.assertIn("это папка", ctx.exception.errors[0])
+
 
 class CliTest(unittest.TestCase):
     def run_cli(self, *args):
@@ -180,6 +239,28 @@ class CliTest(unittest.TestCase):
         code, _, err = self.run_cli(str(ROOT / "examples" / "invalid.csv"))
         self.assertEqual(code, 2)
         self.assertIn("Ошибка во входных данных", err)
+
+    def test_unsupported_report_format_rejected_before_calculation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "report.xlsx"
+            with self.assertRaises(SystemExit) as ctx:
+                self.run_cli(str(ROOT / "examples" / "products.csv"), "-o", str(out_path))
+            self.assertFalse(out_path.exists())
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_save_report_rejects_unknown_suffix(self):
+        recs = [calculate(product())]
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("report.xlsx", "report"):
+                with self.assertRaises(ValueError):
+                    save_report(recs, Path(tmp) / name)
+
+    def test_report_write_error_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "no_such_dir" / "report.csv"
+            code, _, err = self.run_cli(str(ROOT / "examples" / "products.csv"), "-o", str(out_path))
+        self.assertEqual(code, 1)
+        self.assertIn("Не удалось сохранить отчёт", err)
 
 
 if __name__ == "__main__":

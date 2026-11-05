@@ -75,10 +75,17 @@ def _as_dict(r: Recommendation) -> dict:
     }
 
 
+REPORT_FORMATS = (".txt", ".csv", ".json")
+
+
 def save_report(recs: list[Recommendation], path: str | Path) -> None:
-    """Формат выбирается по расширению: .csv, .json, иначе — текст."""
+    """Формат выбирается по расширению: .txt, .csv или .json. Другие расширения — ошибка,
+    чтобы, например, report.xlsx не оказался текстовым файлом под видом таблицы."""
     path = Path(path)
     suffix = path.suffix.lower()
+    if suffix not in REPORT_FORMATS:
+        raise ValueError(f"неподдерживаемый формат отчёта '{suffix or path.name}', "
+                         f"допустимы: {', '.join(REPORT_FORMATS)}")
     if suffix == ".json":
         path.write_text(json.dumps([_as_dict(r) for r in recs], ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8")
@@ -89,5 +96,5 @@ def save_report(recs: list[Recommendation], path: str | Path) -> None:
             writer = csv.DictWriter(f, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)
-    else:
+    else:  # .txt
         path.write_text(render_text(recs) + "\n", encoding="utf-8")
